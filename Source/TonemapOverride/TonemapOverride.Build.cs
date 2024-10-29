@@ -45,7 +45,7 @@ public class TonemapOverride : ModuleRules
 			);
 
         // If using custom version of the Unreal Engine with modified SceneViewExtension and PostprocessCombineLUT
-		PublicDefinitions.Add("ENGINE_VERSION_CUSTOM");
+		PublicDefinitions.Add("ENGINE_VERSION_CUSTOM=false");
 
     }
 }

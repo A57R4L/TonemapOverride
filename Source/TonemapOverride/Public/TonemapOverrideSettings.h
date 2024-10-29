@@ -39,5 +39,5 @@ public:
 	virtual FName GetSectionName() const override { return FName("TonemapOverride"); };
 
 	static UTonemapOverrideSettings& Get();
-	
+
 };
