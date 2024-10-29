@@ -1,0 +1,17 @@
+// Tony McMapface
+// https://github.com/h3r2tic/tony-mc-mapface/
+
+#pragma once
+
+half3 tony_mc_mapface(half3 stimulus) {
+	// Apply a non-linear transform that the LUT is encoded with.
+	half3 encoded = stimulus / (stimulus + 1.0);
+
+	// Align the encoded range to texel centers.
+	half3 LUT_DIMS = 48.0;
+	half3 uv = encoded * ((LUT_DIMS - 1.0) / LUT_DIMS) + 0.5 / LUT_DIMS;
+
+	float3 color = Texture3DSample(LUTTexture, LUTTextureSampler, uv).rgb; 
+
+	return half3(color);
+}

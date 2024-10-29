@@ -1,0 +1,506 @@
+#pragma once
+
+// Flim by Bean  / https://github.com/bean-mhm/flim/
+//
+// Adapted from https://www.shadertoy.com/view/dd2yDz and github/flim.py
+//
+// Adaptation by Ossi Luoto
+
+static const float flim_pre_exposure = 4.3;
+static const float3 flim_pre_formation_filter = float3(1.0, 1.0, 1.0);
+static const float flim_pre_formation_filter_strength = 0.;
+
+// Precalculated for default settings
+
+// static const float flim_extended_gamut_red_scale = 1.05;
+// static const float flim_extended_gamut_green_scale = 1.12;
+// static const float flim_extended_gamut_blue_scale = 1.045;
+// static const float flim_extended_gamut_red_rot = .5;
+// static const float flim_extended_gamut_green_rot = 2.;
+// static const float flim_extended_gamut_blue_rot = .1;
+// static const float flim_extended_gamut_red_mul = 1.;
+// static const float flim_extended_gamut_green_mul = 1.;
+// static const float flim_extended_gamut_blue_mul = 1.;
+
+static const float flim_sigmoid_log2_min = -10.;
+static const float flim_sigmoid_log2_max = 22.;
+static const float flim_sigmoid_toe_x = .44;
+static const float flim_sigmoid_toe_y = .28;
+static const float flim_sigmoid_shoulder_x = .591;
+static const float flim_sigmoid_shoulder_y = .779;
+
+static const float flim_negative_film_exposure = 6.;
+static const float flim_negative_film_density = 5.;
+
+static const float3 flim_print_backlight = float3(1.0, 1.0, 1.0);
+static const float flim_print_film_exposure = 6.;
+static const float flim_print_film_density = 27.5;
+
+static const float flim_black_point = -1.; // -1 = auto
+static const float3 flim_post_formation_filter = float3(1.0, 1.0, 1.0);
+static const float flim_post_formation_filter_strength = 0.;
+static const float flim_midtone_saturation = 1.02;
+
+
+float3 oetf_pow(float3 col, float power)
+{
+    return pow(col, float3(1.0 / power, 1.0 / power, 1.0 / power));
+}
+
+float3 eotf_pow(float3 col, float power)
+{
+    return pow(col, float3(power, power, power));
+}
+
+float mod(float x, float y)
+{
+    return x - y * floor(x / y);
+}
+
+// flim's utility functions
+
+float flim_wrap(float v, float start, float end)
+{
+    return start + mod(v - start, end - start);
+}
+
+float flim_remap(
+    float v,
+    float inp_start,
+    float inp_end,
+    float out_start,
+    float out_end
+)
+{
+    return out_start
+        + ((out_end - out_start) / (inp_end - inp_start)) * (v - inp_start);
+}
+
+float flim_remap_clamp(
+    float v,
+    float inp_start,
+    float inp_end,
+    float out_start,
+    float out_end
+)
+{
+    float t = clamp((v - inp_start) / (inp_end - inp_start), 0., 1.);
+    return out_start + t * (out_end - out_start);
+}
+
+float flim_remap01(
+    float v,
+    float inp_start,
+    float inp_end
+)
+{
+    return clamp((v - inp_start) / (inp_end - inp_start), 0., 1.);
+}
+
+float3 flim_blender_rgb_to_hsv(float3 rgb)
+{
+    float cmax, cmin, h, s, v, cdelta;
+    float3 c;
+
+    cmax = max(rgb[0], max(rgb[1], rgb[2]));
+    cmin = min(rgb[0], min(rgb[1], rgb[2]));
+    cdelta = cmax - cmin;
+
+    v = cmax;
+    if (cmax != 0.)
+    {
+        s = cdelta / cmax;
+    }
+    else
+    {
+        s = 0.;
+        h = 0.;
+    }
+
+    if (s == 0.)
+    {
+        h = 0.;
+    }
+    else
+    {
+        c = (float3(cmax, cmax, cmax) - rgb.xyz) / cdelta;
+
+        if (rgb.x == cmax)
+        {
+            h = c[2] - c[1];
+        }
+        else if (rgb.y == cmax)
+        {
+            h = 2. + c[0] - c[2];
+        }
+        else
+        {
+            h = 4. + c[1] - c[0];
+        }
+
+        h /= 6.;
+
+        if (h < 0.)
+        {
+            h += 1.;
+        }
+    }
+
+    return float3(h, s, v);
+}
+
+float3 flim_blender_hsv_to_rgb(float3 hsv)
+{
+    float f, p, q, t, h, s, v;
+    float3 rgb;
+
+    h = hsv[0];
+    s = hsv[1];
+    v = hsv[2];
+
+    if (s == 0.)
+    {
+        rgb = float3(v, v, v);
+    }
+    else
+    {
+        if (h == 1.)
+        {
+            h = 0.;
+        }
+
+        h *= 6.;
+        int i = int(floor(h));
+        f = h - float(i);
+        rgb = float3(f, f, f);
+        p = v * (1. - s);
+        q = v * (1. - (s * f));
+        t = v * (1. - (s * (1. - f)));
+
+        if (i == 0)
+        {
+            rgb = float3(v, t, p);
+        }
+        else if (i == 1)
+        {
+            rgb = float3(q, v, p);
+        }
+        else if (i == 2)
+        {
+            rgb = float3(p, v, t);
+        }
+        else if (i == 3)
+        {
+            rgb = float3(p, q, v);
+        }
+        else if (i == 4)
+        {
+            rgb = float3(t, p, v);
+        }
+        else
+        {
+            rgb = float3(v, p, q);
+        }
+    }
+
+    return rgb;
+}
+
+float3 flim_blender_hue_sat(float3 col, float hue, float sat, float value)
+{
+    float3 hsv = flim_blender_rgb_to_hsv(col);
+
+    hsv[0] = frac(hsv[0] + hue + .5);
+    hsv[1] = clamp(hsv[1] * sat, 0., 1.);
+    hsv[2] = hsv[2] * value;
+
+    return flim_blender_hsv_to_rgb(hsv);
+}
+
+float flim_rgb_avg(float3 col)
+{
+    return (col.x + col.y + col.z) / 3.;
+}
+
+float flim_rgb_sum(float3 col)
+{
+    return col.x + col.y + col.z;
+}
+
+float flim_rgb_max(float3 col)
+{
+    return max(max(col.x, col.y), col.z);
+}
+
+float flim_rgb_min(float3 col)
+{
+    return min(min(col.x, col.y), col.z);
+}
+
+float3 flim_rgb_uniform_offset(float3 col, float black_point, float white_point)
+{
+    float mono = flim_rgb_avg(col);
+    float mono2 = flim_remap01(
+        mono, black_point / 1000.,
+        1. - (white_point / 1000.)
+    );
+    return col * (mono2 / mono);
+}
+
+
+// https://www.desmos.com/calculator/khkztixyeu
+float flim_super_sigmoid(
+    float v,
+    float toe_x,
+    float toe_y,
+    float shoulder_x,
+    float shoulder_y
+)
+{
+    // clip
+    v = clamp(v, 0., 1.);
+    toe_x = clamp(toe_x, 0., 1.);
+    toe_y = clamp(toe_y, 0., 1.);
+    shoulder_x = clamp(shoulder_x, 0., 1.);
+    shoulder_y = clamp(shoulder_y, 0., 1.);
+
+    // calculate straight line slope
+    float slope = (shoulder_y - toe_y) / (shoulder_x - toe_x);
+
+    // toe
+    if (v < toe_x)
+    {
+        float toe_pow = slope * toe_x / toe_y;
+        return toe_y * pow(v / toe_x, toe_pow);
+    }
+
+    // straight line
+    if (v < shoulder_x)
+    {
+        float intercept = toe_y - (slope * toe_x);
+        return slope * v + intercept;
+    }
+
+    // shoulder
+    float shoulder_pow =
+        -slope / (
+            ((shoulder_x - 1.) / pow(1. - shoulder_x, 2.))
+            * (1. - shoulder_y)
+        );
+    return
+        (1. - pow(1. - (v - shoulder_x) / (1. - shoulder_x), shoulder_pow))
+        * (1. - shoulder_y)
+        + shoulder_y;
+}
+
+float flim_dye_mix_factor(float mono, float max_density)
+{
+    // log2 and map range
+    float offset = pow(2., flim_sigmoid_log2_min);
+    float fac = flim_remap01(
+        log2(mono + offset),
+        flim_sigmoid_log2_min,
+        flim_sigmoid_log2_max
+    );
+
+    // calculate amount of exposure from 0 to 1
+    fac = flim_super_sigmoid(
+        fac,
+        flim_sigmoid_toe_x,
+        flim_sigmoid_toe_y,
+        flim_sigmoid_shoulder_x,
+        flim_sigmoid_shoulder_y
+    );
+
+    // calculate dye density
+    fac *= max_density;
+
+    // mix factor
+    fac = pow(2., -fac);
+
+    // clip and return
+    return clamp(fac, 0., 1.);
+}
+
+float3 flim_rgb_color_layer(
+    float3 col,
+    float3 sensitivity_tone,
+    float3 dye_tone,
+    float max_density
+)
+{
+    // normalize
+    float3 sensitivity_tone_norm =
+        sensitivity_tone / flim_rgb_sum(sensitivity_tone);
+    float3 dye_tone_norm = dye_tone / flim_rgb_max(dye_tone);
+
+    // dye mix factor
+    float mono = dot(col, sensitivity_tone_norm);
+    float mix_fac = flim_dye_mix_factor(mono, max_density);
+
+    // dye mixing
+    return lerp(dye_tone_norm, float3(1.0, 1.0, 1.0), mix_fac);
+}
+
+float3 flim_rgb_develop(float3 col, float exposure, float max_density)
+{
+    // exposure
+    col *= pow(2., exposure);
+
+    // blue-sensitive layer
+    float3 result = flim_rgb_color_layer(
+        col,
+        float3(0, 0, 1),
+        float3(1, 1, 0),
+        max_density
+    );
+
+    // green-sensitive layer
+    result *= flim_rgb_color_layer(
+        col,
+        float3(0, 1, 0),
+        float3(1, 0, 1),
+        max_density
+    );
+
+    // red-sensitive layer
+    result *= flim_rgb_color_layer(
+        col,
+        float3(1, 0, 0),
+        float3(0, 1, 1),
+        max_density
+    );
+
+    return result;
+}
+
+float3 negative_and_print(float3 col, float3 backlight_ext)
+{
+    // develop negative
+    col = flim_rgb_develop(
+        col,
+        flim_negative_film_exposure,
+        flim_negative_film_density
+    );
+
+    // backlight
+    col *= backlight_ext;
+
+    // develop print
+    col = flim_rgb_develop(
+        col,
+        flim_print_film_exposure,
+        flim_print_film_density
+    );
+
+    return col;
+}
+
+
+// the flim transform with color correction
+
+float3 flim_transform(float3 col, float exposure)
+{
+    // eliminate negative values
+    col = max(col, 0.);
+
+    // pre-Exposure
+    col *= pow(2., flim_pre_exposure + exposure);
+
+    // clip very large values for float precision issues
+    col = min(col, 5000.);
+
+    // gamut extension matrix (Linear BT.709)
+	// (precomputed matrix for the default preset)
+
+    const float3x3 extend_mat = float3x3(
+    0.90647482, 0.05035971, 0.04316547,
+	0.0861244, 0.80382775, 0.11004785,
+    0.04105572, 0.03958944, 0.91935484
+    );
+
+    const float3x3 extend_mat_inv = float3x3(
+    1.11158278, -0.06746781, -0.04411496,
+    -0.11296819, 1.25828193, -0.14531374,
+    -0.0447754, -0.05117147, 1.09594687
+    );
+
+    // backlight in the extended gamut
+	// hlsl vs glsl matrix order
+    float3 backlight_ext = mul(extend_mat, flim_print_backlight);
+
+    // upper limit in the print (highlight cap)
+    const float big = 10000000.;
+    float3 white_cap = negative_and_print(float3(big, big, big), backlight_ext);
+
+    // pre-formation filter
+    col = lerp(
+        col,
+        col * flim_pre_formation_filter,
+        flim_pre_formation_filter_strength
+    );
+
+    // convert to the extended gamut
+    col = mul(extend_mat, col);
+
+    // negative & print
+    col = negative_and_print(col, backlight_ext);
+
+    // convert from the extended gamut
+    col = mul(extend_mat_inv, col);
+
+    // eliminate negative values
+    col = max(col, 0.);
+
+    // white cap
+    col /= white_cap;
+
+    // black cap (-1 = auto)
+    if (flim_black_point == -1.)
+    {
+        float3 black_cap = negative_and_print(float3(0.0, 0.0, 0.0), backlight_ext);
+        black_cap /= white_cap;
+        col = flim_rgb_uniform_offset(
+            col,
+            flim_rgb_avg(black_cap) * 1000.,
+            0.
+        );
+    }
+    else
+    {
+        col = flim_rgb_uniform_offset(col, flim_black_point, 0.);
+    }
+
+    // post-formation filter
+    col = lerp(
+        col,
+        col * flim_post_formation_filter,
+        flim_post_formation_filter_strength
+    );
+
+    // clip
+    col = clamp(col, 0., 1.);
+
+    // midtone saturation
+    float mono = flim_rgb_avg(col);
+    float mix_fac =
+        (mono < .5)
+        ? flim_remap01(mono, .05, .5)
+        : flim_remap01(mono, .95, .5);
+    col = lerp(
+        col,
+        flim_blender_hue_sat(col, .5, flim_midtone_saturation, 1.),
+        mix_fac
+    );
+
+    // clip
+    col = clamp(col, 0., 1.);
+
+    // OETF
+ //   col = oetf_pow(col, 2.2);
+ 
+    return col;
+}
+
+
+

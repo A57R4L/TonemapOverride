@@ -1,0 +1,230 @@
+// Copyright 2024 Ossi Luoto
+// 
+// Custom Tonemap LUT creation
+
+#pragma once
+
+#include "/Engine/Private/PostProcessCombineLUTs.usf"
+
+// Most of the parameters come via previous include, but if doing just custom LUT, following includes come helpful
+
+//#include "/Engine/Private/Common.ush"
+//#include "/Engine/Private/PostProcessCommon.ush"
+//#include "/Engine/Private/TonemapCommon.ush"
+//#include "/Engine/Public/Platform.ush"
+//#include "/Engine/Private/GammaCorrectionCommon.ush"
+
+// Match for enum ECustomTonemapOperator
+#define TONEMAP_AGX 0
+#define TONEMAP_AGXPUNCHY 1
+#define TONEMAP_REINHARD 2
+#define TONEMAP_TONY 3
+#define TONEMAP_FLIM 4
+#define TONEMAP_ACES 5
+
+#include "CustomTonemapCommon.usf"
+#include "AgX.usf"
+#include "Reinhard.usf"
+#include "Tony.usf"
+#include "Flim.usf"
+
+// Most shader parameters are defined already in PostProcessCombineLUTs.usf
+
+
+float4 CreateLUT(float2 InUV, uint InLayerIndex)
+{
+	float4 OutColor = 0;
+
+    float4 LUTNeutral = CreateNeutralLUT(InUV, InLayerIndex);
+
+	const float3x3 AP1_2_sRGB = mul( XYZ_2_sRGB_MAT, mul( D60_2_D65_CAT, AP1_2_XYZ_MAT ) );
+	const float3x3 AP1_2_Output  = OuputGamutMappingMatrix( OutputGamut );
+
+    // Apply log encoding for the LUT Texture
+	// Skip ACES output for other tonemappers
+
+    float3 LinearColor = LogToLin(LUTNeutral.rgb) - LogToLin(0);
+
+	// Apply grading in engine style
+	// With custom tonemappers one could apply the post process volume parameters in more applicable place and in other color space
+	// Like this here to provide as neutral comparison between tonemappers as possible
+
+#if !SKIP_TEMPERATURE
+	float3 BalancedColor = WhiteBalance(LinearColor, WhiteTemp, WhiteTint, bIsTemperatureWhiteBalance, (float3x3)WorkingColorSpace.ToXYZ, (float3x3)WorkingColorSpace.FromXYZ);
+#else
+	float3 BalancedColor = LinearColor;
+#endif
+
+	float3 ColorAP1 = mul( (float3x3)WorkingColorSpace.ToAP1, BalancedColor );
+	float  LumaAP1 = dot( ColorAP1, AP1_RGB2Y );
+	float3 ChromaAP1 = ColorAP1 / LumaAP1;
+
+	float ChromaDistSqr = dot( ChromaAP1 - 1, ChromaAP1 - 1 );
+	float ExpandAmount = ( 1 - exp2( -4 * ChromaDistSqr ) ) * ( 1 - exp2( -4 * ExpandGamut * LumaAP1*LumaAP1 ) );
+	const float3x3 Wide_2_XYZ_MAT = 
+	{
+		0.5441691,  0.2395926,  0.1666943,
+		0.2394656,  0.7021530,  0.0583814,
+		-0.0023439,  0.0361834,  1.0552183,
+	};
+
+	const float3x3 Wide_2_AP1 = mul( XYZ_2_AP1_MAT, Wide_2_XYZ_MAT );
+	const float3x3 ExpandMat = mul( Wide_2_AP1, AP1_2_sRGB );
+	float3 ColorExpand = mul( ExpandMat, ColorAP1 );
+	ColorAP1 = lerp( ColorAP1, ColorExpand, ExpandAmount );
+	ColorAP1 = ColorCorrectAll( ColorAP1 );
+	float3 GradedColor = mul( (float3x3)WorkingColorSpace.FromAP1, ColorAP1 );
+
+	// End grading
+
+	// Apply custom tonemapper
+	// First we convert from AP1 grading space to LinearSRGB where these tonemappers operate and clip out of gamut colors
+
+	const float3x3 sRGB_2_AP1 = mul(XYZ_2_AP1_MAT, mul(D65_2_D60_CAT, sRGB_2_XYZ_MAT));
+    float3 ToneMapSRGB = max(0, mul(AP1_2_sRGB, ColorAP1));
+
+#if TONEMAP_OPERATOR == TONEMAP_AGX || TONEMAP_OPERATOR == TONEMAP_AGXPUNCHY
+	ToneMapSRGB = Agx(ToneMapSRGB);
+    // For example with AgX, this could be a logical place to apply the engine grading as well
+    ToneMapSRGB = AgxLook(ToneMapSRGB);
+	ToneMapSRGB = AgxEotf(ToneMapSRGB);
+#endif
+
+#if TONEMAP_OPERATOR == TONEMAP_REINHARD
+	ToneMapSRGB = LumaBasedReinhard(ToneMapSRGB, 28.0);
+#endif
+
+#if TONEMAP_OPERATOR == TONEMAP_TONY
+	ToneMapSRGB = tony_mc_mapface(ToneMapSRGB);
+#endif
+
+#if TONEMAP_OPERATOR == TONEMAP_FLIM
+	ToneMapSRGB = flim_transform(ToneMapSRGB, 0.0);
+#endif
+
+    // Finally we revert back to AP1 colorspace, the roundtrip here can be avoided but implemented like this for consistency with the engine tonemapper
+
+    float3 ToneMappedColorAP1 = mul(sRGB_2_AP1, ToneMapSRGB);
+    ColorAP1 = lerp(ColorAP1, ToneMappedColorAP1, ToneCurveAmount);
+
+    // Implement Return from AP1 colorspace, polynomial mapping, Cinematics fadetracks and gamma engine style
+
+	float3 FilmColor = max(0, mul( (float3x3)WorkingColorSpace.FromAP1, ColorAP1 ));
+    FilmColor = ColorCorrection(FilmColor);
+	float3 FilmColorNoGamma = lerp( FilmColor * ColorScale, OverlayColor.rgb, OverlayColor.a );
+	GradedColor = lerp(GradedColor * ColorScale, OverlayColor.rgb, OverlayColor.a);
+	FilmColor = pow( max(0, FilmColorNoGamma), InverseGamma.y );
+
+    // Implemet outputs in engine style
+    // For custom tonemappers here we ignore the ACES outputs
+
+	half3 OutDeviceColor = 0;
+	BRANCH
+
+	if( GetOutputDevice() == TONEMAPPER_OUTPUT_sRGB)
+	{		
+		float3 OutputGamutColor = WorkingColorSpace.bIsSRGB ? FilmColor : mul( AP1_2_Output, mul( (float3x3)WorkingColorSpace.ToAP1, FilmColor ) );
+		OutDeviceColor = LinearToSrgb( OutputGamutColor );
+	}
+
+	else if( GetOutputDevice() == TONEMAPPER_OUTPUT_Rec709)
+	{
+		float3 OutputGamutColor = mul( AP1_2_Output, mul( (float3x3)WorkingColorSpace.ToAP1, FilmColor ) );
+		OutDeviceColor = LinearTo709Branchless( OutputGamutColor );
+	}
+
+	else if( GetOutputDevice() == TONEMAPPER_OUTPUT_LinearEXR)
+	{
+			float3 OutputGamutColor = mul( AP1_2_Output, mul( (float3x3)WorkingColorSpace.ToAP1, GradedColor ) );
+			OutDeviceColor = LinearToST2084( OutputGamutColor );
+	}
+	else if( GetOutputDevice() == TONEMAPPER_OUTPUT_NoToneCurve)
+	{
+			OutDeviceColor = GradedColor;
+	}
+	else if (GetOutputDevice() == TONEMAPPER_OUTPUT_WithToneCurve)
+	{
+		float3 OutputGamutColor = mul( AP1_2_Output, mul( (float3x3)WorkingColorSpace.ToAP1, FilmColorNoGamma ) );
+		OutDeviceColor = OutputGamutColor;
+	}
+	else
+	{
+		float3 OutputGamutColor = mul( AP1_2_Output, mul( (float3x3)WorkingColorSpace.ToAP1, FilmColor ) );
+		OutDeviceColor = pow( OutputGamutColor, InverseGamma.z );
+	}
+
+	OutColor.rgb = OutDeviceColor / 1.05;
+	OutColor.a = 0;
+
+	return OutColor;
+}
+
+// Shader setup here looks like a mess, but we user either compute or pixel shader based on engine settings and fall back to engine LUT creation if using ACES
+
+#if USE_VOLUME_LUT == 1
+void CreateLUTPS(FWriteToSliceGeometryOutput Input, out float4 OutColor : SV_Target0)
+{
+// Use full Engine version if ACES
+#if TONEMAP_OPERATOR == TONEMAP_ACES
+	OutColor = CombineLUTsCommon(Input.Vertex.UV, Input.LayerIndex);
+#else
+	OutColor = CreateLUT(Input.Vertex.UV, Input.LayerIndex);
+#endif
+
+}
+#else
+void CreateLUTPS(noperspective float4 InUV : TEXCOORD0, out float4 OutColor : SV_Target0)
+{
+#if TONEMAP_OPERATOR == TONEMAP_ACES
+	OutColor = CombineLUTsCommon(InUV.xy, 0);
+#else
+	OutColor = CreateLUT(InUV.xy, 0);
+#endif
+}
+#endif
+
+
+#if COMPUTESHADER
+//float2 OutputExtentInverse;
+#if USE_VOLUME_LUT == 1
+//RWTexture3D<float4> RWOutputTexture;
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void CreateLUTCS(uint3 DispatchThreadId : SV_DispatchThreadID) 
+{
+	float2 UV = ((float2)DispatchThreadId.xy + 0.5f) * OutputExtentInverse;
+	uint LayerIndex = DispatchThreadId.z;
+
+#if TONEMAP_OPERATOR == TONEMAP_ACES
+	float4 OutColor = CombineLUTsCommon(UV, LayerIndex);
+#else
+	float4 OutColor = CreateLUT(UV, LayerIndex);
+#endif
+
+	uint3 PixelPos = DispatchThreadId;
+	RWOutputTexture[PixelPos] = OutColor;
+}
+#else
+
+//RWTexture2D<float4> RWOutputTexture;
+
+// Create LUT
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void CreateLUTCS(uint2 DispatchThreadId : SV_DispatchThreadID)
+{
+	float2 UV = ((float2)DispatchThreadId + 0.5f) * OutputExtentInverse;
+	uint LayerIndex = 0;
+
+#if TONEMAP_OPERATOR == TONEMAP_ACES
+	float4 OutColor = CombineLUTsCommon(UV, LayerIndex);
+#else
+	float4 OutColor = CreateLUT(UV, LayerIndex);
+#endif
+
+	uint2 PixelPos = DispatchThreadId;
+	RWOutputTexture[PixelPos] = OutColor;
+}
+
+#endif
+#endif
+

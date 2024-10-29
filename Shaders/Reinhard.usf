@@ -1,0 +1,14 @@
+// Reinhard et al
+// https://www-old.cs.utah.edu/docs/techreports/2002/pdf/UUCS-02-001.pdf
+
+#pragma once
+
+float3 LumaBasedReinhard(float3 color, float white)
+{
+    float luma = dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+
+	float toneMappedLuma = luma / (1.0f + luma / (white*white)) / (1.0f + luma);
+	color *= toneMappedLuma / luma;
+	return color;
+}
+
