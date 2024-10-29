@@ -131,6 +131,7 @@ October 2024: First release
 
 ### Links and references
 
+* [Unreal Engine source modifcations](https://github.com/EpicGames/UnrealEngine/pull/12478)
 * [AgX](https://github.com/sobotka/AgX) by Troy Sobotka
 * [Reinhard](https://www-old.cs.utah.edu/docs/techreports/2002/pdf/UUCS-02-001.pdf) by Reinhard et al
 * [Tony McMapface](https://github.com/h3r2tic/tony-mc-mapface) by Tomasz Stachowiak
