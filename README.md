@@ -25,13 +25,13 @@ When working with colors in the high dynamic range, tonemapping function can mak
 2. Disabling Engine Tonemapping function and using fully custom implementation with f.ex. SceneViewExtension in Tonemap Pass or OCIO transform
 3. Modifying the engine code
 
-<img src="tonemap_diagram.jpg" width="640" height="auto" />
+<img src="https://media.githubusercontent.com/media/A57R4L/TonemapOverride/refs/heads/main/Images/tonemap_diagram.jpg" width="1280" height="auto" />
 
 As seen from the process breakdown, bypassing current engine implementation requires to rewrite a lot from the current engine implementation and/or leave out the tonemap shader features. These include the composition of Bloom effect, using EyeExposure Adpatation and the Film grain and vignette effects of the tonemapper to name a few. Post Process Volumes are a typical way to apply adjustments for color grading which are implemented in the CombineLUT pass. While it is possible to cover some features, one loses the computational efficieny of using the LUT based approach the engine uses internally if not relying to the method to modify the engince code.
 
 While this plugin provides a way to hack the current post processing pipeline, it is also made to showcase how the SceneViewExtension could be extended to easily hook into the dedicated pass.
 
-### How the pluging works
+### How the plugin works
 
 Unreal Engine tonemapper works in two passes. First creating a lookup texture with color grading parameters and then on the second pass implementing that LUT to the current scene texture while doing compoisition of other textures (like bloom) and effects (vignette etc). The Tonemap pass optimizes this process by using the LUT from previous iteration if no changes are done. The hack version of the plugin utilizes this optimization by trying to bypass the in-engine LUT creation and overwriting the existing texture.
 
@@ -116,6 +116,8 @@ Implementation to use the color grading LUT texture assets (not to be confused w
 
 Comparison of included tonemappers in an Unreal Engine scene. No other modifications have been made except changing the tonemapper and LUT resolution. See Images folder for the images in higher resolution.
 
+<img src="https://media.githubusercontent.com/media/A57R4L/TonemapOverride/refs/heads/main/Images/comparison_summary.jpg" width="1280" height="auto" />
+
 
 ### License 
 
@@ -129,11 +131,11 @@ October 2024: First release
 
 ### Links and references
 
-[AgX](https://github.com/sobotka/AgX) by Troy Sobotka 
-[Reinhard](https://www-old.cs.utah.edu/docs/techreports/2002/pdf/UUCS-02-001.pdf) by Reinhard et al
-[Tony McMapface](https://github.com/h3r2tic/tony-mc-mapface) by Tomasz Stachowiak
-[Flim](https://github.com/bean-mhm/flim) by Bean
-[ACES](https://github.com/ampas/aces-core) Academy of Motion Picture Arts and Sciences
+* [AgX](https://github.com/sobotka/AgX) by Troy Sobotka
+* [Reinhard](https://www-old.cs.utah.edu/docs/techreports/2002/pdf/UUCS-02-001.pdf) by Reinhard et al
+* [Tony McMapface](https://github.com/h3r2tic/tony-mc-mapface) by Tomasz Stachowiak
+* [Flim](https://github.com/bean-mhm/flim) by Bean
+* [ACES](https://github.com/ampas/aces-core) Academy of Motion Picture Arts and Sciences
 
-[AgX Implementation](https://iolite-engine.com/blog_posts/minimal_agx_implementation)
+* [AgX Implementation](https://iolite-engine.com/blog_posts/minimal_agx_implementation)
 [Comparison scene: Butcher's Alley Palmetro Future City](https://fab.com/s/d72725be0932) by Dekogon Studios
