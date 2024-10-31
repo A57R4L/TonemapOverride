@@ -1,0 +1,15 @@
+// Jim Hejl
+// https://x.com/jimhejl/status/633777619998130176
+
+#pragma once
+
+float HejlWhitePoint;
+
+float3 ToneMapFilmic_Hejl2015(float3 hdr)
+{
+	float4 vh = float4(hdr.rgb, HejlWhitePoint);
+	float4 va = (1.425 * vh) + 0.05f;
+	float4 vf = ((vh * va + 0.004f) / ((vh * (va + 0.55f) + 0.0491f))) - 0.0821f;
+	
+	return vf.rgb / vf.www;
+}

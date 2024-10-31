@@ -14,6 +14,8 @@ enum class ECustomTonemapOperator : uint8
 	Reinhard,
 	TonyMcMapface,
 	Flim,
+	Hejl,
+	GranTurismo,
 	ACES,
 	MAX,
 };
@@ -31,9 +33,15 @@ public:
 	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride", meta = (DisplayName = "TonemappingOperator", ToolTip = "Custom tonemapping operator to use (Shader permutation)"))
 	ECustomTonemapOperator CustomTonemapOperator;
 	
-	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride", meta = (DisplayName = "LUT Texture", ToolTip = "Texture asset for tonemapper"))
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Tony", meta = (DisplayName = "LUT Texture", ToolTip = "Texture asset for tonemapper"))
 	TSoftObjectPtr<UTexture> LUTTexture = FSoftObjectPath("/TonemapOverride/Textures/tony_mc_mapface_f32.tony_mc_mapface_f32").ResolveObject();
-	
+
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Reinhard", meta = (DisplayName = "WhitePoint", ToolTip = "Custom tonemapping operator to use (Shader permutation)"))
+	float ReinhardWhitePoint = 20.0;
+
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Hejl", meta = (DisplayName = "WhitePoint", ToolTip = "Custom tonemapping operator to use (Shader permutation)"))
+	float HejlWhitePoint = 20.0;
+
 	virtual FName GetContainerName() const override { return FName("Project"); };
 	virtual FName GetCategoryName() const override { return FName("Plugins"); };
 	virtual FName GetSectionName() const override { return FName("TonemapOverride"); };

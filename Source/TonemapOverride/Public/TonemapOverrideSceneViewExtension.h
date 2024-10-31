@@ -45,10 +45,6 @@ private:
 	FScreenPassTexture CreateOverrideLUT(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessMaterialInputs& Inputs);
 #endif
 
-	// Tonemap operator
-	ECustomTonemapOperator TonemapOperator;
-	FTextureRHIRef LUTTexture;
-
 	bool bProcessed = false;
 	bool bCachedOverride = false;
 };

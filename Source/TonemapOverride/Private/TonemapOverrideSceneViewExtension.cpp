@@ -49,6 +49,15 @@ public:
 	{ }
 };
 
+// Custom parameters implemented outside native Engine tonemapping/color grading
+BEGIN_SHADER_PARAMETER_STRUCT(FCustomTonemapperParameters, )
+	SHADER_PARAMETER(int32, TonemapOperator)
+	SHADER_PARAMETER(float, ReinhardWhitePoint)
+	SHADER_PARAMETER_TEXTURE(Texture3D<float>, LUTTexture)
+	SHADER_PARAMETER_SAMPLER(SamplerState, LUTTextureSampler)
+	SHADER_PARAMETER(float, HejlWhitePoint)
+END_SHADER_PARAMETER_STRUCT()
+
 // Need to bind all parameters for Full ACES Tonemapping & Color Grading for full implementation
 // When doing just custom, can limit these to the required 
 BEGIN_SHADER_PARAMETER_STRUCT(FACESTonemapShaderParameters, )
@@ -105,10 +114,7 @@ BEGIN_SHADER_PARAMETER_STRUCT(FTonemapOverrideLUTParameters, )
 	SHADER_PARAMETER(uint32, bIsTemperatureWhiteBalance)
 	SHADER_PARAMETER(FVector3f, MappingPolynomial)
 	SHADER_PARAMETER_STRUCT_INCLUDE(FTonemapperOutputDeviceParameters, OutputDevice)
-
-	SHADER_PARAMETER_TEXTURE(Texture3D<float>, LUTTexture)
-	SHADER_PARAMETER_SAMPLER(SamplerState, LUTTextureSampler)
-
+	SHADER_PARAMETER_STRUCT_INCLUDE(FCustomTonemapperParameters, CustomTonemapperParameters)
 END_SHADER_PARAMETER_STRUCT()
 
 #define UPDATE_CACHE_SETTINGS(DestParameters, ParamValue, bOutHasChanged) \
@@ -127,14 +133,15 @@ struct FCachedLUTSettings
 	bool bUseCompute = false;
 	ECustomTonemapOperator CachedTonemapOperator;
 
-	bool UpdateCachedValues(const FViewInfo& View, uint32 LUTSize, ECustomTonemapOperator TonemapOperator)
+	bool UpdateCachedValues(const FViewInfo& View, uint32 LUTSize, const UTonemapOverrideSettings& TonemapOverrideSettings)
 	{
 		bool bHasChanged = false;
 		GetCombineLUTParameters(View, LUTSize, bHasChanged);
+		GetCustomLUTParameters(TonemapOverrideSettings, bHasChanged);
 		UPDATE_CACHE_SETTINGS(UniqueID, View.State ? View.State->GetViewKey() : 0, bHasChanged);
 		UPDATE_CACHE_SETTINGS(ShaderPlatform, View.GetShaderPlatform(), bHasChanged);
 		UPDATE_CACHE_SETTINGS(bUseCompute, View.bUseComputePasses, bHasChanged);
-		UPDATE_CACHE_SETTINGS(CachedTonemapOperator, TonemapOperator, bHasChanged);
+		UPDATE_CACHE_SETTINGS(CachedTonemapOperator,TonemapOverrideSettings.CustomTonemapOperator, bHasChanged);
 
 		const FWorkingColorSpaceShaderParameters* InWorkingColorSpaceShaderParameters = reinterpret_cast<const FWorkingColorSpaceShaderParameters*>(GDefaultWorkingColorSpaceUniformBuffer.GetContents());
 		if (InWorkingColorSpaceShaderParameters)
@@ -249,6 +256,30 @@ struct FCachedLUTSettings
 		UPDATE_CACHE_SETTINGS(Parameters.OutputDevice.OutputGamut, TonemapperOutputDeviceParameters.OutputGamut, bHasChanged);
 		UPDATE_CACHE_SETTINGS(Parameters.OutputDevice.OutputMaxLuminance, TonemapperOutputDeviceParameters.OutputMaxLuminance, bHasChanged);
 	}
+
+	void GetCustomLUTParameters(
+	const UTonemapOverrideSettings& TonemapOverrideSettings,
+	bool& bHasChanged)
+	{
+		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.TonemapOperator, int32(TonemapOverrideSettings.CustomTonemapOperator), bHasChanged);
+		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.ReinhardWhitePoint, TonemapOverrideSettings.ReinhardWhitePoint, bHasChanged);
+		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.HejlWhitePoint, TonemapOverrideSettings.HejlWhitePoint, bHasChanged);
+
+		// Use fallback texture if not set
+		FTextureRHIRef LUTTexture = GBlackTexture->TextureRHI;
+		FRHISamplerState* LUTSamplerState = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		
+		if (TonemapOverrideSettings.CustomTonemapOperator == ECustomTonemapOperator::TonyMcMapface)
+		{
+			if (TonemapOverrideSettings.LUTTexture && TonemapOverrideSettings.LUTTexture->GetResource() && TonemapOverrideSettings.LUTTexture->GetResource()->TextureRHI)
+			{
+				LUTTexture = TonemapOverrideSettings.LUTTexture->GetResource()->TextureRHI;
+			}
+		}
+		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.LUTTexture, LUTTexture, bHasChanged);
+		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.LUTTextureSampler, LUTSamplerState, bHasChanged);
+	}
+
 };
 
 
@@ -299,21 +330,16 @@ FTonemapOverrideSceneViewExtension::FTonemapOverrideSceneViewExtension(const FAu
 	TonemapOverrideSettings.LUTTexture.LoadSynchronous();
 	
 }
+
 #if ENGINE_VERSION_CUSTOM == true
 void FTonemapOverrideSceneViewExtension::SubscribeToPostProcessCombineLUTPass(const FSceneView& InView, FTonemapLUTCallbackDelegateArray& LUTPassCallbacks)
 {
-	UTonemapOverrideSettings& TonemapOverrideSettings = UTonemapOverrideSettings::Get();
-	TonemapOperator = TonemapOverrideSettings.CustomTonemapOperator;
+	const UTonemapOverrideSettings& TonemapOverrideSettings = UTonemapOverrideSettings::Get();
 
 	if (bCachedOverride != TonemapOverrideSettings.bUseCustomTonemapper)
 	{
 		UE_LOG(TonemapOverrideLog, Warning, TEXT("Manually refresh postprocess settings"));
 		bCachedOverride = TonemapOverrideSettings.bUseCustomTonemapper;
-	}
-
-	if (TonemapOverrideSettings.LUTTexture && TonemapOverrideSettings.LUTTexture->GetResource() && TonemapOverrideSettings.LUTTexture->GetResource()->TextureRHI)
-	{
-		LUTTexture = TonemapOverrideSettings.LUTTexture->GetResource()->TextureRHI;
 	}
 
 	if (TonemapOverrideSettings.bUseCustomTonemapper)
@@ -329,14 +355,7 @@ void FTonemapOverrideSceneViewExtension::SubscribeToPostProcessingPass(EPostProc
 void FTonemapOverrideSceneViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass PassId, FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled)
 #endif
 {
-	UTonemapOverrideSettings& TonemapOverrideSettings = UTonemapOverrideSettings::Get();
-	
-	TonemapOperator = TonemapOverrideSettings.CustomTonemapOperator;
-
-	if (TonemapOverrideSettings.LUTTexture && TonemapOverrideSettings.LUTTexture->GetResource() && TonemapOverrideSettings.LUTTexture->GetResource()->TextureRHI)
-	{
-		LUTTexture = TonemapOverrideSettings.LUTTexture->GetResource()->TextureRHI;
-	}
+	const UTonemapOverrideSettings& TonemapOverrideSettings = UTonemapOverrideSettings::Get();
 
 	if (TonemapOverrideSettings.bUseCustomTonemapper)
 	{
@@ -372,26 +391,7 @@ FRDGTextureRef FTonemapOverrideSceneViewExtension::RenderOverrideLUT(FRDGBuilder
 
 		const bool bOutputDeviceSRGB = (PassParameters->TonemapLUTParameters.OutputDevice.OutputDevice == (uint32)EDisplayOutputFormat::SDR_sRGB);
 		PermutationVector.Set<FTonemapOverrideShaderCommon::FOutputDeviceSRGB>(bOutputDeviceSRGB);
-
-		PermutationVector.Set<FTonemapOverrideShaderCommon::FTonemapOperator>(TonemapOperator);
-
-		if (!LUTTexture)
-		{
-			PassParameters->TonemapLUTParameters.LUTTexture = GBlackTexture->TextureRHI;
-		}
-		else
-		{
-			PassParameters->TonemapLUTParameters.LUTTexture = LUTTexture;
-		}
-
-		if (TonemapOperator == ECustomTonemapOperator::Flim)
-		{
-			PassParameters->TonemapLUTParameters.LUTTextureSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-		}
-		else
-		{
-			PassParameters->TonemapLUTParameters.LUTTextureSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-		}
+		PermutationVector.Set<FTonemapOverrideShaderCommon::FTonemapOperator>(CachedLUTSettings.CachedTonemapOperator);
 
 		const uint32 GroupSizeXY = FMath::DivideAndRoundUp(OutputViewSize.X, FTonemapOverrideLUTShaderCS::GroupSize);
 		const uint32 GroupSizeZ = bUseVolumeTextureLUT ? GroupSizeXY : 1;
@@ -409,7 +409,6 @@ FRDGTextureRef FTonemapOverrideSceneViewExtension::RenderOverrideLUT(FRDGBuilder
 	{
 		FTonemapOverrideLUTShaderPS::FParameters* PassParameters = GraphBuilder.AllocParameters<FTonemapOverrideLUTShaderPS::FParameters>();
 		PassParameters->TonemapLUTParameters = CachedLUTSettings.Parameters;
-		UE_LOG(TonemapOverrideLog, Log, TEXT("Inverse gamma: %f"), PassParameters->TonemapLUTParameters.OutputDevice.InverseGamma.Y);
 		PassParameters->RenderTargets[0] = FRenderTargetBinding(OutputTexture, ERenderTargetLoadAction::ENoAction);
 
 		const bool ShouldSkipTemperature = FMath::IsNearlyEqual(PassParameters->TonemapLUTParameters.WhiteTemp, DefaultTemperature) && FMath::IsNearlyEqual(PassParameters->TonemapLUTParameters.WhiteTint, DefaultTint);
@@ -417,26 +416,8 @@ FRDGTextureRef FTonemapOverrideSceneViewExtension::RenderOverrideLUT(FRDGBuilder
 
 		const bool bOutputDeviceSRGB = (PassParameters->TonemapLUTParameters.OutputDevice.OutputDevice == (uint32)EDisplayOutputFormat::SDR_sRGB);
 		PermutationVector.Set<FTonemapOverrideShaderCommon::FOutputDeviceSRGB>(bOutputDeviceSRGB);
+		PermutationVector.Set<FTonemapOverrideShaderCommon::FTonemapOperator>(CachedLUTSettings.CachedTonemapOperator);
 
-		PermutationVector.Set<FTonemapOverrideShaderCommon::FTonemapOperator>(TonemapOperator);
-
-		if (!LUTTexture)
-		{
-			PassParameters->TonemapLUTParameters.LUTTexture = GBlackTexture->TextureRHI;
-		}
-		else
-		{
-			PassParameters->TonemapLUTParameters.LUTTexture = LUTTexture;
-		}
-
-		if (TonemapOperator == ECustomTonemapOperator::Flim)
-		{
-			PassParameters->TonemapLUTParameters.LUTTextureSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-		}
-		else
-		{
-			PassParameters->TonemapLUTParameters.LUTTextureSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-		}
 
 		TShaderMapRef<FTonemapOverrideLUTShaderPS> PixelShader(View.ShaderMap, PermutationVector);
 
@@ -510,7 +491,8 @@ FRDGTextureRef FTonemapOverrideSceneViewExtension::CreateOverrideLUT_RenderThrea
 	static FCachedLUTSettings CachedLUTSettings;
 
 	// Check if postprocessing values have been updated
-	const bool bHasChanged = CachedLUTSettings.UpdateCachedValues(ViewInfo, TextureLUTSize, TonemapOperator);
+	const UTonemapOverrideSettings& TonemapOverrideSettings = UTonemapOverrideSettings::Get();
+	const bool bHasChanged = CachedLUTSettings.UpdateCachedValues(View, TextureLUTSize, TonemapOverrideSettings);
 
 	if (bHasChanged)
 	{
@@ -580,7 +562,8 @@ FScreenPassTexture FTonemapOverrideSceneViewExtension::CreateOverrideLUT(FRDGBui
 	bProcessed = true;
 	
 	// Check if postprocessing values have been updated
-	const bool bHasChanged = CachedLUTSettings.UpdateCachedValues(View, TextureLUTSize, TonemapOperator);
+	const UTonemapOverrideSettings& TonemapOverrideSettings = UTonemapOverrideSettings::Get();
+	const bool bHasChanged = CachedLUTSettings.UpdateCachedValues(View, TextureLUTSize, TonemapOverrideSettings);
 
 	// Doesn't really work as the editor might overwrite our LUT texture later with updated values
 	// So we need to be regenerating this, but might work better in runtime

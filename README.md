@@ -135,7 +135,9 @@ October 2024: First release
 * [Reinhard](https://www-old.cs.utah.edu/docs/techreports/2002/pdf/UUCS-02-001.pdf) by Reinhard et al
 * [Tony McMapface](https://github.com/h3r2tic/tony-mc-mapface) by Tomasz Stachowiak
 * [Flim](https://github.com/bean-mhm/flim) by Bean
+* [GranTurismo/Uchimura](https://www.slideshare.net/nikuque/hdr-theory-and-practicce-jp) 
+* [Hejl](https://x.com/jimhejl/status/633777619998130176) by Jim Hejl
 * [ACES](https://github.com/ampas/aces-core) Academy of Motion Picture Arts and Sciences
 
 * [AgX Implementation](https://iolite-engine.com/blog_posts/minimal_agx_implementation)
-[Comparison scene: Butcher's Alley Palmetro Future City](https://fab.com/s/d72725be0932) by Dekogon Studios
+* [Comparison scene: Butcher's Alley Palmetro Future City](https://fab.com/s/d72725be0932) by Dekogon Studios

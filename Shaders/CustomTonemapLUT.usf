@@ -20,13 +20,17 @@
 #define TONEMAP_REINHARD 2
 #define TONEMAP_TONY 3
 #define TONEMAP_FLIM 4
-#define TONEMAP_ACES 5
+#define TONEMAP_HEJL 5
+#define TONEMAP_GT 6
+#define TONEMAP_ACES 7
 
 #include "CustomTonemapCommon.usf"
 #include "AgX.usf"
 #include "Reinhard.usf"
 #include "Tony.usf"
 #include "Flim.usf"
+#include "Hejl.usf"
+#include "Uchimura.usf"
 
 // Most shader parameters are defined already in PostProcessCombineLUTs.usf
 
@@ -91,7 +95,7 @@ float4 CreateLUT(float2 InUV, uint InLayerIndex)
 #endif
 
 #if TONEMAP_OPERATOR == TONEMAP_REINHARD
-	ToneMapSRGB = LumaBasedReinhard(ToneMapSRGB, 28.0);
+	ToneMapSRGB = LumaBasedReinhard(ToneMapSRGB);
 #endif
 
 #if TONEMAP_OPERATOR == TONEMAP_TONY
@@ -100,6 +104,14 @@ float4 CreateLUT(float2 InUV, uint InLayerIndex)
 
 #if TONEMAP_OPERATOR == TONEMAP_FLIM
 	ToneMapSRGB = flim_transform(ToneMapSRGB, 0.0);
+#endif
+
+#if TONEMAP_OPERATOR == TONEMAP_HEJL
+	ToneMapSRGB = ToneMapFilmic_Hejl2015(ToneMapSRGB);
+#endif
+
+#if TONEMAP_OPERATOR == TONEMAP_GT
+	ToneMapSRGB = tonemap_uchimura(ToneMapSRGB);
 #endif
 
     // Finally we revert back to AP1 colorspace, the roundtrip here can be avoided but implemented like this for consistency with the engine tonemapper
