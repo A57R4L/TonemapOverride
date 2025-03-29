@@ -492,9 +492,11 @@ FRDGTextureRef FTonemapOverrideSceneViewExtension::CreateOverrideLUT_RenderThrea
 
 	// Check if postprocessing values have been updated
 	const UTonemapOverrideSettings& TonemapOverrideSettings = UTonemapOverrideSettings::Get();
-	const bool bHasChanged = CachedLUTSettings.UpdateCachedValues(View, TextureLUTSize, TonemapOverrideSettings);
+	const bool bHasChanged = CachedLUTSettings.UpdateCachedValues(ViewInfo, TextureLUTSize, TonemapOverrideSettings);
 
-	if (bHasChanged)
+	static const auto CVarUpdateEveryFrame = IConsoleManager::Get().FindConsoleVariable(TEXT("r.LUT.UpdateEveryFrame"));
+
+	if (bHasChanged || CVarUpdateEveryFrame->GetInt() > 0)
 	{
 		RenderOverrideLUT(GraphBuilder, ViewInfo, OutputTexture, CachedLUTSettings, bUseComputePass, bUseVolumeTextureLUT, TextureLUTSize);
 	}
