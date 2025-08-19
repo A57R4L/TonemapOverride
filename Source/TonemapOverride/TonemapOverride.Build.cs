@@ -12,11 +12,17 @@ public class TonemapOverride : ModuleRules
         var EngineDir = Path.GetFullPath(Target.RelativeEnginePath);
 		
 		PrivateIncludePaths.AddRange(
-			new string[] {
+			new string[]
+			{
 				Path.Combine(EngineDir, "Source/Runtime/Renderer/Private")
 			}
-			);
-			
+			);		
+		PrivateIncludePaths.AddRange(
+			new string[]
+			{
+				Path.Combine(EngineDir, "Source/Runtime/Renderer/Internal")
+			}
+		);		
 		
 		PublicDependencyModuleNames.AddRange(
 			new string[]
