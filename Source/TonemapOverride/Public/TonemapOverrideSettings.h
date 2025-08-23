@@ -34,7 +34,8 @@ public:
 	ECustomTonemapOperator CustomTonemapOperator;
 	
 	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Tony", meta = (DisplayName = "LUT Texture", ToolTip = "Texture asset for tonemapper"))
-	TSoftObjectPtr<UTexture> LUTTexture = FSoftObjectPath("/TonemapOverride/Textures/tony_mc_mapface_f32.tony_mc_mapface_f32").ResolveObject();
+	TSoftObjectPtr<UTexture> LUTTexture = TSoftObjectPtr<UTexture>(FSoftObjectPath(TEXT("/TonemapOverride/Content/Textures/tony_mc_mapface_f32.tony_mc_mapface_f32")).ResolveObject()
+);
 
 	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Reinhard", meta = (DisplayName = "WhitePoint", ToolTip = "Custom tonemapping operator to use (Shader permutation)"))
 	float ReinhardWhitePoint = 20.0;

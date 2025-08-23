@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "SceneViewExtension.h"
 #include "DataDrivenShaderPlatformInfo.h"
+#include "Misc/EngineVersionComparison.h"
 #include "PostProcess/PostProcessing.h"
 #include "PostProcess/PostProcessTonemap.h"
 #include "TonemapOverrideSettings.h"
@@ -26,10 +27,10 @@ public:
 #else
 
 	// Alternatively with current 5.4/5.5 we can create a pre-tonemap hook to hijack the LUT creation process
-#if ENGINE_MINOR_VERSION == 5 
-	virtual void SubscribeToPostProcessingPass(EPostProcessingPass PassId, const FSceneView& InView, FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled) override;
-#else
+#if UE_VERSION_OLDER_THAN(5, 5, 0)
 	virtual void SubscribeToPostProcessingPass(EPostProcessingPass PassId, FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled) override;
+#else
+	virtual void SubscribeToPostProcessingPass(EPostProcessingPass PassId, const FSceneView& InView, FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled) override;
 #endif
 #endif
 

@@ -349,10 +349,10 @@ void FTonemapOverrideSceneViewExtension::SubscribeToPostProcessCombineLUTPass(co
 }
 #else
 
-#if ENGINE_MINOR_VERSION == 5
-void FTonemapOverrideSceneViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass PassId, const FSceneView& InView, FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled)
-#else
+#if UE_VERSION_OLDER_THAN(5, 5, 0)
 void FTonemapOverrideSceneViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass PassId, FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled)
+#else
+void FTonemapOverrideSceneViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass PassId, const FSceneView& InView, FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled)
 #endif
 {
 	const UTonemapOverrideSettings& TonemapOverrideSettings = UTonemapOverrideSettings::Get();
