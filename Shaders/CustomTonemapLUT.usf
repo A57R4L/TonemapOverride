@@ -22,7 +22,8 @@
 #define TONEMAP_FLIM 4
 #define TONEMAP_HEJL 5
 #define TONEMAP_GT 6
-#define TONEMAP_ACES 7
+#define TONEMAP_GT7 7
+#define TONEMAP_ACES 8
 
 #include "CustomTonemapCommon.usf"
 #include "AgX.usf"
@@ -31,6 +32,7 @@
 #include "Flim.usf"
 #include "Hejl.usf"
 #include "Uchimura.usf"
+#include "GT7.usf"
 
 // Most shader parameters are defined already in PostProcessCombineLUTs.usf
 
@@ -83,10 +85,15 @@ float4 CreateLUT(float2 InUV, uint InLayerIndex)
 
 	// Apply custom tonemapper
 	// First we convert from AP1 grading space to LinearSRGB where these tonemappers operate and clip out of gamut colors
+	// Skip GT7 that expects AP1
 
+	float3 ToneMapSRGB;
 	const float3x3 sRGB_2_AP1 = mul(XYZ_2_AP1_MAT, mul(D65_2_D60_CAT, sRGB_2_XYZ_MAT));
-    float3 ToneMapSRGB = max(0, mul(AP1_2_sRGB, ColorAP1));
-
+	
+#if TONEMAP_OPERATOR != TONEMAP_GT7
+    ToneMapSRGB = max(0, mul(AP1_2_sRGB, ColorAP1));
+#endif
+	
 #if TONEMAP_OPERATOR == TONEMAP_AGX || TONEMAP_OPERATOR == TONEMAP_AGXPUNCHY
 	ToneMapSRGB = Agx(ToneMapSRGB);
     // For example with AgX, this could be a logical place to apply the engine grading as well
@@ -114,11 +121,19 @@ float4 CreateLUT(float2 InUV, uint InLayerIndex)
 	ToneMapSRGB = tonemap_uchimura(ToneMapSRGB);
 #endif
 
+#if TONEMAP_OPERATOR == TONEMAP_GT7
+	ToneMapSRGB = GT7Tonemap(ColorAP1);
+#endif
+	
     // Finally we revert back to AP1 colorspace, the roundtrip here can be avoided but implemented like this for consistency with the engine tonemapper
-
-    float3 ToneMappedColorAP1 = mul(sRGB_2_AP1, ToneMapSRGB);
-    ColorAP1 = lerp(ColorAP1, ToneMappedColorAP1, ToneCurveAmount);
-
+#if TONEMAP_OPERATOR != TONEMAP_GT7
+	float3 ToneMappedColorAP1 = mul(sRGB_2_AP1, ToneMapSRGB);
+#else
+	float3 ToneMappedColorAP1 = ToneMapSRGB;
+#endif
+	
+	ColorAP1 = lerp(ColorAP1, ToneMappedColorAP1, ToneCurveAmount);
+	
     // Implement Return from AP1 colorspace, polynomial mapping, Cinematics fadetracks and gamma engine style
 
 	float3 FilmColor = max(0, mul( (float3x3)WorkingColorSpace.FromAP1, ColorAP1 ));
@@ -166,6 +181,7 @@ float4 CreateLUT(float2 InUV, uint InLayerIndex)
 	}
 
 	OutColor.rgb = OutDeviceColor / 1.05;
+
 	OutColor.a = 0;
 
 	return OutColor;

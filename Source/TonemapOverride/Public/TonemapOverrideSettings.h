@@ -1,4 +1,4 @@
-// Copyright 2024 Ossi Luoto
+// Copyright 2024 - 2025 Ossi Luoto
 
 #pragma once
 
@@ -16,10 +16,18 @@ enum class ECustomTonemapOperator : uint8
 	Flim,
 	Hejl,
 	GranTurismo,
+	GT7,
 	ACES,
 	MAX,
 };
 
+UENUM(BlueprintType)
+enum class EGT7UCSType : uint8
+{
+	ICtCp,
+	Jzazbz,
+	MAX
+};
 
 UCLASS(Config=Game, DefaultConfig, DisplayName = "TonemapOverride")
 class TONEMAPOVERRIDE_API UTonemapOverrideSettings : public UDeveloperSettingsBackedByCVars
@@ -34,15 +42,26 @@ public:
 	ECustomTonemapOperator CustomTonemapOperator;
 	
 	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Tony", meta = (DisplayName = "LUT Texture", ToolTip = "Texture asset for tonemapper"))
-	TSoftObjectPtr<UTexture> LUTTexture = TSoftObjectPtr<UTexture>(FSoftObjectPath(TEXT("/TonemapOverride/Content/Textures/tony_mc_mapface_f32.tony_mc_mapface_f32")).ResolveObject()
-);
+	TSoftObjectPtr<UTexture> LUTTexture = TSoftObjectPtr<UTexture>(FSoftObjectPath(TEXT("/TonemapOverride/Content/Textures/tony_mc_mapface_f32.tony_mc_mapface_f32")).ResolveObject());
 
-	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Reinhard", meta = (DisplayName = "WhitePoint", ToolTip = "Custom tonemapping operator to use (Shader permutation)"))
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Reinhard", meta = (DisplayName = "WhitePoint", ToolTip = "Reinhard Whitepoint"))
 	float ReinhardWhitePoint = 20.0;
 
-	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Hejl", meta = (DisplayName = "WhitePoint", ToolTip = "Custom tonemapping operator to use (Shader permutation)"))
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | Hejl", meta = (DisplayName = "WhitePoint", ToolTip = "Hejl Whitepoint"))
 	float HejlWhitePoint = 20.0;
 
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | GT7", meta = (DisplayName = "GT7 UCS", ToolTip = "GT7 Unified color space"))
+	EGT7UCSType UCSType = EGT7UCSType::ICtCp;
+
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | GT7", meta = (DisplayName = "GT7 Blend Ratio", ToolTip = "GT7 Blend Ratio between Skewed and Scaled Colors"))
+	float GT7BlendRatio = 0.6f;
+
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | GT7", meta = (DisplayName = "GT7 Fade Start", ToolTip = "GT7 Fade Start"))
+	float GT7FadeStart = 0.98f;
+
+	UPROPERTY(Config, BlueprintReadOnly, EditAnywhere, Category = "TonemapOverride | GT7", meta = (DisplayName = "GT7 Fade End", ToolTip = "GT7 Fade End"))
+	float GT7FadeEnd = 1.16f;
+	
 	virtual FName GetContainerName() const override { return FName("Project"); };
 	virtual FName GetCategoryName() const override { return FName("Plugins"); };
 	virtual FName GetSectionName() const override { return FName("TonemapOverride"); };

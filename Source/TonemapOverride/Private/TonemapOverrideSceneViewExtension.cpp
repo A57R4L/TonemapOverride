@@ -1,4 +1,4 @@
-// Copyright 2024 Ossi Luoto
+// Copyright 2024 - 2025 Ossi Luoto
 
 #include "TonemapOverrideSceneViewExtension.h"
 #include "PostProcess/PostProcessMaterialInputs.h"
@@ -41,7 +41,8 @@ public:
 	class FTonemapOperator : SHADER_PERMUTATION_ENUM_CLASS("TONEMAP_OPERATOR", ECustomTonemapOperator);
 	class FOutputDeviceSRGB : SHADER_PERMUTATION_BOOL("OUTPUT_DEVICE_SRGB");
 	class FSkipTemperature : SHADER_PERMUTATION_BOOL("SKIP_TEMPERATURE");
-	using FPermutationDomain = TShaderPermutationDomain<FOutputDeviceSRGB, FTonemapOperator, FSkipTemperature>;
+	class FGT7UCSType : SHADER_PERMUTATION_ENUM_CLASS("TONE_MAPPING_UCSTYPE", EGT7UCSType);
+	using FPermutationDomain = TShaderPermutationDomain<FOutputDeviceSRGB, FTonemapOperator, FSkipTemperature, FGT7UCSType>;
 	
 	FTonemapOverrideShaderCommon() {}
 	
@@ -56,6 +57,10 @@ BEGIN_SHADER_PARAMETER_STRUCT(FCustomTonemapperParameters, )
 	SHADER_PARAMETER_TEXTURE(Texture3D<float>, LUTTexture)
 	SHADER_PARAMETER_SAMPLER(SamplerState, LUTTextureSampler)
 	SHADER_PARAMETER(float, HejlWhitePoint)
+	SHADER_PARAMETER(float, GT7BlendRatio)
+	SHADER_PARAMETER(float, GT7FadeStart)
+	SHADER_PARAMETER(float, GT7FadeEnd)
+	SHADER_PARAMETER(int32, EGT7UCSType)
 END_SHADER_PARAMETER_STRUCT()
 
 // Need to bind all parameters for Full ACES Tonemapping & Color Grading for full implementation
@@ -132,7 +137,8 @@ struct FCachedLUTSettings
 	FWorkingColorSpaceShaderParameters WorkingColorSpaceShaderParameters;
 	bool bUseCompute = false;
 	ECustomTonemapOperator CachedTonemapOperator;
-
+	EGT7UCSType CachedGT7UCSType;
+	
 	bool UpdateCachedValues(const FViewInfo& View, uint32 LUTSize, const UTonemapOverrideSettings& TonemapOverrideSettings)
 	{
 		bool bHasChanged = false;
@@ -142,7 +148,8 @@ struct FCachedLUTSettings
 		UPDATE_CACHE_SETTINGS(ShaderPlatform, View.GetShaderPlatform(), bHasChanged);
 		UPDATE_CACHE_SETTINGS(bUseCompute, View.bUseComputePasses, bHasChanged);
 		UPDATE_CACHE_SETTINGS(CachedTonemapOperator,TonemapOverrideSettings.CustomTonemapOperator, bHasChanged);
-
+		UPDATE_CACHE_SETTINGS(CachedGT7UCSType,TonemapOverrideSettings.UCSType, bHasChanged);
+		
 		const FWorkingColorSpaceShaderParameters* InWorkingColorSpaceShaderParameters = reinterpret_cast<const FWorkingColorSpaceShaderParameters*>(GDefaultWorkingColorSpaceUniformBuffer.GetContents());
 		if (InWorkingColorSpaceShaderParameters)
 		{
@@ -261,10 +268,13 @@ struct FCachedLUTSettings
 	const UTonemapOverrideSettings& TonemapOverrideSettings,
 	bool& bHasChanged)
 	{
-		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.TonemapOperator, int32(TonemapOverrideSettings.CustomTonemapOperator), bHasChanged);
+//		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.TonemapOperator, int32(TonemapOverrideSettings.CustomTonemapOperator), bHasChanged);
 		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.ReinhardWhitePoint, TonemapOverrideSettings.ReinhardWhitePoint, bHasChanged);
 		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.HejlWhitePoint, TonemapOverrideSettings.HejlWhitePoint, bHasChanged);
-
+		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.GT7BlendRatio, TonemapOverrideSettings.GT7BlendRatio, bHasChanged);
+		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.GT7FadeStart, TonemapOverrideSettings.GT7FadeStart, bHasChanged);
+		UPDATE_CACHE_SETTINGS(Parameters.CustomTonemapperParameters.GT7FadeEnd, TonemapOverrideSettings.GT7FadeEnd, bHasChanged);
+		
 		// Use fallback texture if not set
 		FTextureRHIRef LUTTexture = GBlackTexture->TextureRHI;
 		FRHISamplerState* LUTSamplerState = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
@@ -392,6 +402,7 @@ FRDGTextureRef FTonemapOverrideSceneViewExtension::RenderOverrideLUT(FRDGBuilder
 		const bool bOutputDeviceSRGB = (PassParameters->TonemapLUTParameters.OutputDevice.OutputDevice == (uint32)EDisplayOutputFormat::SDR_sRGB);
 		PermutationVector.Set<FTonemapOverrideShaderCommon::FOutputDeviceSRGB>(bOutputDeviceSRGB);
 		PermutationVector.Set<FTonemapOverrideShaderCommon::FTonemapOperator>(CachedLUTSettings.CachedTonemapOperator);
+		PermutationVector.Set<FTonemapOverrideShaderCommon::FGT7UCSType>(CachedLUTSettings.CachedGT7UCSType);
 
 		const uint32 GroupSizeXY = FMath::DivideAndRoundUp(OutputViewSize.X, FTonemapOverrideLUTShaderCS::GroupSize);
 		const uint32 GroupSizeZ = bUseVolumeTextureLUT ? GroupSizeXY : 1;
@@ -417,7 +428,7 @@ FRDGTextureRef FTonemapOverrideSceneViewExtension::RenderOverrideLUT(FRDGBuilder
 		const bool bOutputDeviceSRGB = (PassParameters->TonemapLUTParameters.OutputDevice.OutputDevice == (uint32)EDisplayOutputFormat::SDR_sRGB);
 		PermutationVector.Set<FTonemapOverrideShaderCommon::FOutputDeviceSRGB>(bOutputDeviceSRGB);
 		PermutationVector.Set<FTonemapOverrideShaderCommon::FTonemapOperator>(CachedLUTSettings.CachedTonemapOperator);
-
+		PermutationVector.Set<FTonemapOverrideShaderCommon::FGT7UCSType>(CachedLUTSettings.CachedGT7UCSType);
 
 		TShaderMapRef<FTonemapOverrideLUTShaderPS> PixelShader(View.ShaderMap, PermutationVector);
 
